@@ -153,7 +153,7 @@ struct wiimote_t** wiiuse_init(int wiimotes) {
 		wm[i]->expansion_state = 0;
 
 		wiiuse_set_aspect_ratio(wm[i], WIIUSE_ASPECT_4_3);
-		wiiuse_set_ir_position(wm[i], WIIUSE_IR_ABOVE);
+		wiiuse_set_ir_position(wm[i], WIIUSE_IR_BELOW);
 
 		wm[i]->orient_threshold = 0.5f;
 		wm[i]->accel_threshold = 5;
