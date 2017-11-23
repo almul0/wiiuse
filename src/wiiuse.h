@@ -487,6 +487,9 @@ typedef struct ir_t {
 	int x;							/**< calculated X coordinate			*/
 	int y;							/**< calculated Y coordinate			*/
 
+    int screen;
+    int prev_screen;
+
 	float distance;					/**< pixel distance between first 2 dots*/
 	float z;						/**< calculated distance				*/
 } ir_t;

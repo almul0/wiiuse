@@ -420,8 +420,10 @@ void calculate_extended_ir(struct wiimote_t* wm, byte* data) {
 static void interpret_ir_data(struct wiimote_t* wm) {
 	struct ir_dot_t* dot = wm->ir.dot;
 	int i;
+	int h_diff = 0;
 	float roll = 0.0f;
 	int last_num_dots = wm->ir.num_dots;
+
 
 	if (WIIMOTE_IS_SET(wm, WIIMOTE_STATE_ACC)) {
 		roll = wm->orient.roll;
@@ -429,14 +431,16 @@ static void interpret_ir_data(struct wiimote_t* wm) {
 
 	/* count visible dots */
 	wm->ir.num_dots = 0;
-	for (i = 0; i < 4; ++i) {
-		if (dot[i].visible) {
-			wm->ir.num_dots++;
-		}
-	}
 
-	switch (wm->ir.num_dots) {
-		case 0: {
+    for (i = 0; i < 4; ++i) {
+        if (dot[i].visible) {
+            wm->ir.num_dots++;
+        }
+    }
+
+    switch (wm->ir.num_dots) {
+        case 0: {
+			if (wm->ir.state == NULL) {
 				wm->ir.state = 0;
 
 				/* reset the dot ordering */
@@ -447,113 +451,142 @@ static void interpret_ir_data(struct wiimote_t* wm) {
 				wm->ir.x = 0;
 				wm->ir.y = 0;
 				wm->ir.z = 0.0f;
-
-				return;
+				wm->ir.screen = 1;
 			}
-		case 1: {
-				fix_rotated_ir_dots(wm->ir.dot, roll);
 
-				if (wm->ir.state < 2) {
-					/*
-					 *	Only 1 known dot, so use just that.
-					 */
-					for (i = 0; i < 4; ++i) {
-						if (dot[i].visible) {
-							wm->ir.x = dot[i].x;
-							wm->ir.y = dot[i].y;
+            return;
+        }
+        case 1: {
+            fix_rotated_ir_dots(wm->ir.dot, roll);
 
-							wm->ir.ax = wm->ir.x;
-							wm->ir.ay = wm->ir.y;
+            if (wm->ir.state < 2) {
+                /*
+                 *	Only 1 known dot, so use just that.
+                 */
+                for (i = 0; i < 4; ++i) {
+                    if (dot[i].visible) {
+                        wm->ir.x = dot[i].x;
+                        wm->ir.y = dot[i].y;
 
-							/*	can't calculate yaw because we don't have the distance */
-							/* wm->orient.yaw = calc_yaw(&wm->ir); */
+                        wm->ir.ax = wm->ir.x;
+                        wm->ir.ay = wm->ir.y;
 
-							ir_convert_to_vres(&wm->ir.x, &wm->ir.y, wm->ir.aspect, wm->ir.vres[0], wm->ir.vres[1]);
-							break;
-						}
-					}
-				} else {
-					/*
-					 *	Only see 1 dot but know theres 2.
-					 *	Try to estimate where the other one
-					 *	should be and use that.
-					 */
-					for (i = 0; i < 4; ++i) {
-						if (dot[i].visible) {
-							int ox = 0;
-							int x, y;
+                        /*	can't calculate yaw because we don't have the distance */
+                        /* wm->orient.yaw = calc_yaw(&wm->ir); */
 
-							if (dot[i].order == 1)
-								/* visible is the left dot - estimate where the right is */
-							{
-								ox = (int32_t)(dot[i].x + wm->ir.distance);
-							} else if (dot[i].order == 2)
-								/* visible is the right dot - estimate where the left is */
-							{
-								ox = (int32_t)(dot[i].x - wm->ir.distance);
-							}
+                        ir_convert_to_vres(&wm->ir.x, &wm->ir.y, wm->ir.aspect, wm->ir.vres[0], wm->ir.vres[1]);	break;
+                    }
+                }
+            } else {
+                /*
+                 *	Only see 1 dot but know theres 2.
+                 *	Try to estimate where the other one
+                 *	should be and use that.
+                 */
+                for (i = 0; i < 4; ++i) {
+                    if (dot[i].visible) {
+                        int ox = 0;
+                        int x, y;
 
-							x = ((signed int)dot[i].x + ox) / 2;
-							y = dot[i].y;
+                        if (dot[i].order == 1)
+                            /* visible is the left dot - estimate where the right is */
+                        {
+                            ox = (int32_t)(dot[i].x + wm->ir.distance);
+                        } else if (dot[i].order == 2)
+                            /* visible is the right dot - estimate where the left is */
+                        {
+                            ox = (int32_t)(dot[i].x - wm->ir.distance);
+                        }
 
-							wm->ir.ax = x;
-							wm->ir.ay = y;
-							wm->orient.yaw = calc_yaw(&wm->ir);
+                        x = ((signed int)dot[i].x + ox) / 2;
+                        y = dot[i].y;
 
-							if (ir_correct_for_bounds(&x, &y, wm->ir.aspect, wm->ir.offset[0], wm->ir.offset[1])) {
-								ir_convert_to_vres(&x, &y, wm->ir.aspect, wm->ir.vres[0], wm->ir.vres[1]);
-								wm->ir.x = x;
-								wm->ir.y = y;
-							}
+                        wm->ir.ax = x;
+                        wm->ir.ay = y;
+                        wm->orient.yaw = calc_yaw(&wm->ir);
 
-							break;
-						}
-					}
-				}
+                        if (ir_correct_for_bounds(&x, &y, wm->ir.aspect, wm->ir.offset[0], wm->ir.offset[1])) {
+                            ir_convert_to_vres(&x, &y, wm->ir.aspect, wm->ir.vres[0], wm->ir.vres[1]);
+                            wm->ir.x = wm->ir.screen*WM_ASPECT_4_3_X + x;
+                            wm->ir.y = y;
+                        }
 
-				break;
-			}
-		case 2:
-		case 3:
-		case 4: {
-				/*
-				 *	Two (or more) dots known and seen.
-				 *	Average them together to estimate the true location.
-				 */
-				int x, y;
-				wm->ir.state = 2;
+                        break;
+                    }
+                }
+            }
 
-				fix_rotated_ir_dots(wm->ir.dot, roll);
+            break;
+        }
+        case 2:
+        case 3:
+        case 4: {
+            /*
+             *	Two (or more) dots known and seen.
+             *	Average them together to estimate the true location.
+             */
+            int x, y;
+            wm->ir.state = 2;
 
-				/* if there is at least 1 new dot, reorder them all */
-				if (wm->ir.num_dots > last_num_dots) {
-					reorder_ir_dots(dot);
-					wm->ir.x = 0;
-					wm->ir.y = 0;
-				}
+            fix_rotated_ir_dots(wm->ir.dot, roll);
 
-				wm->ir.distance = ir_distance(dot);
-				wm->ir.z = 1023 - wm->ir.distance;
 
-				get_ir_dot_avg(wm->ir.dot, &x, &y);
+            /* if there is at least 1 new dot, reorder them all */
+            if (wm->ir.num_dots > last_num_dots) {
+                reorder_ir_dots(dot);
+               // wm->ir.x = 0;
+                //wm->ir.y = 0;
+            }
 
-				wm->ir.ax = x;
-				wm->ir.ay = y;
-				wm->orient.yaw = calc_yaw(&wm->ir);
 
-				if (ir_correct_for_bounds(&x, &y, wm->ir.aspect, wm->ir.offset[0], wm->ir.offset[1])) {
-					ir_convert_to_vres(&x, &y, wm->ir.aspect, wm->ir.vres[0], wm->ir.vres[1]);
-					wm->ir.x = x;
-					wm->ir.y = y;
-				}
 
-				break;
-			}
-		default: {
-				break;
-			}
-	}
+            wm->ir.distance = ir_distance(dot);
+            wm->ir.z = 1023 - wm->ir.distance;
 
+            get_ir_dot_avg(wm->ir.dot, &x, &y);
+
+            wm->ir.ax = x;
+            wm->ir.ay = y;
+            wm->orient.yaw = calc_yaw(&wm->ir);
+
+            int h1,h2;
+            for (i = 0; i < 4; ++i) {
+                if (wm->ir.dot[i].visible) {
+                    if (wm->ir.dot[i].order==1) {
+                        h1 = dot[i].ry;
+                    }
+                    if (wm->ir.dot[i].order==2) {
+                        h2 = dot[i].ry;
+                    }
+                }
+            }
+            h_diff = (h2 - h1);
+            if (h_diff > 60) {
+                wm->ir.screen = 0;
+                wm->ir.prev_screen = 1;
+            } else if (h_diff < -60) {
+                wm->ir.screen = 2;
+                wm->ir.prev_screen = 1;
+            } else {
+                wm->ir.prev_screen = wm->ir.screen;
+                wm->ir.screen = 1;
+            }
+
+
+
+
+            if (ir_correct_for_bounds(&x, &y, wm->ir.aspect, wm->ir.offset[0], wm->ir.offset[1])) {
+                ir_convert_to_vres(&x, &y, wm->ir.aspect, wm->ir.vres[0], wm->ir.vres[1]);
+                wm->ir.x = wm->ir.screen*WM_ASPECT_4_3_X + x;
+                wm->ir.y = y;
+            }
+
+            break;
+        }
+        default: {
+            break;
+        }
+    }
 #ifdef WITH_WIIUSE_DEBUG
 	{
 		int ir_level;
@@ -565,6 +598,10 @@ static void interpret_ir_data(struct wiimote_t* wm) {
 				WIIUSE_DEBUG("IR[%i][order %i] (%.3i, %.3i) -> (%.3i, %.3i)", i, dot[i].order, dot[i].rx, dot[i].ry, dot[i].x, dot[i].y);
 			}
 		WIIUSE_DEBUG("IR[absolute]: (%i, %i)", wm->ir.x, wm->ir.y);
+		WIIUSE_DEBUG("IR Screen: %i", wm->ir.screen);
+		WIIUSE_DEBUG("IR Diff height: %i", h_diff);
+
+
 	}
 #endif
 }
